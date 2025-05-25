@@ -34,10 +34,11 @@
                        nil true
                        false)))]
     (if (= value ::not-found)
-      (when required
+      (if required
         {:data    ::not-found
          :message (str (name key) " is required.")
-         :path    path})
+         :path    path}
+        true)
       (validate value schema (conj path key) context))))
 
 (defn validate
@@ -51,15 +52,15 @@
   ([data schema path]
    (validate data schema path data))
   ([data schema path context]
-   (println "validate -> " [data schema path context])
+   ; (println "validate -> " [path])
+
    (cond
      (fn? schema) (try
-                    (when-not (schema data)
-                      [{:data    data
-                        :message "Validation failed"
-                        :path    path}])
+                    (if (schema data)
+                      true
+                      [{:data data :path path :message "Validation failed"}])
                     (catch Exception e
-                      (str "Predicate exception. Exception: " (ex-message e))))
+                      [{:data data :path path :message (str "Predicate exception. Exception: " (ex-message e))}]))
 
      (vector? schema) (let [schema-type (first schema)
                             ; as of now we only use options in [:map opts ...]
@@ -69,56 +70,52 @@
                                           {})
                             schema-body (if options?
                                           (drop 2 schema)
-                                          (rest schema))]
-                        (case schema-type
-                          :map (if-not (map? data)
-                                 {:data data :message "Expected map." :path path}
-                                 (let [errors (reduce
-                                               (fn [acc field]
-                                                 (let [[key ops key-schema] (if (= 3 (count field))
-                                                                              field
-                                                                              [(first field) {} (last field)])
-                                                       errors (process-field
-                                                               key (merge schema-opts ops) key-schema
-                                                               data path context)]
-                                                   (if (seq errors)
-                                                     (conj acc errors)
-                                                     acc)))
-                                               [] schema-body)]
-                                   (when (seq errors)
-                                     (flatten errors))))
+                                          (rest schema)) 
+                            result (case schema-type
+                                     :map (if-not (map? data)
+                                            {:data data :path path :message "Expected map."}
+                                            (->> (reduce
+                                                  (fn [acc field]
+                                                    (let [[key ops key-schema] (if (= 3 (count field))
+                                                                                 field
+                                                                                 [(first field) {} (last field)])
+                                                          rv (process-field
+                                                              key (merge schema-opts ops) key-schema
+                                                              data path context)]
+                                                      (conj acc rv)))
+                                                  [] schema-body)
+                                                 (remove true?)))
 
-                          :vector (if-not (vector? data)
-                                    {:data data :message "Expected vector." :path path}
-                                    (let [s (first schema-body)
-                                          errors (->> data
+                                     :vector (if-not (vector? data)
+                                               {:data data :path path :message "Expected vector."}
+                                               (let [s (first schema-body)]
+                                                 (->> data
                                                       (map-indexed (fn [idx item]
                                                                      (validate item s (conj path idx) context)))
-                                                      (remove nil?))]
-                                      (when (seq errors)
-                                        (flatten errors))))
+                                                      (remove true?))))
 
-                          :set (if-not (set? data)
-                                 {:data data :message "Validation set" :path path}
-                                 (let [s (first schema-body)
-                                       errors (->> data
+                                     :set (if-not (set? data)
+                                            {:data data :path path :message "Validation set"}
+                                            (let [s (first schema-body)]
+                                              (->> data
                                                    (map #(validate % s path context))
-                                                   (remove nil?))]
-                                   (when (seq errors)
-                                     (flatten errors))))
+                                                   (remove true?))))
 
-                          :and (->> (map #(validate data % path context) schema-body)
-                                    (remove nil?)
-                                    seq)
-                          :or (let [rv (map #(validate data % path context) schema-body)]
-                                (if (some nil? rv)
-                                  nil
-                                  (flatten (remove nil? rv))))
+                                     :and (->> (map #(validate data % path context) schema-body)
+                                               (remove true?))
 
-                          [(str "Unknown schema type: "
-                                schema-type
-                                (when (seq path)
-                                  (str " at " (last path))))]))
+                                     :or (let [rv (map #(validate data % path context) schema-body)]
+                                           (if (some true? rv)
+                                             []
+                                             (remove true? rv)))
+
+                                     (str "Unknown schema type: "
+                                          schema-type
+                                          (when (seq path)
+                                            (str " at path " (last path)))))]
+                        (if (seq result)
+                          (flatten result)
+                          true))
 
      :else (str "Invalid schema format: "
                 (pr-str schema)
@@ -128,6 +125,7 @@
 
 ;; --- Example Usage ---
 (comment 
+  (validate {:a 10} [:map [:a number?]])
   
   (def property-types #{"Bungalow", "Flat", "Showroom", "Office", "Plot", "Agri Land"})
   (def types #{:bungalow, :flat, :showroom, :office, :plot, :agri-land})
@@ -167,7 +165,7 @@
             [:value number?]]]
     [:price-negotiable boolean?]
     [:location [:map
-                [:country string?                          ; any constraints on valid city name should be handled at input form
+                [:country string?
                  :city string?
                  :longitude number?
                  :latitude number?
