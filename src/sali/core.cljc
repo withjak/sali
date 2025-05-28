@@ -54,12 +54,12 @@
    (validate data schema path data))
   ([data schema path context]
    (let [result (cond
-                  (or (fn? schema)) (try
-                                      (if (schema data)
-                                        true
-                                        {:data data :path path :message "Validation failed" :f schema})
-                                      (catch Exception e
-                                        {:data data :path path :message (str "Predicate exception. Exception: " (ex-message e))}))
+                  (fn? schema) (try
+                                 (if (schema data)
+                                   true
+                                   {:data data :path path :message "Validation failed" :f schema})
+                                 (catch Exception e
+                                   {:data data :path path :message (str "Predicate exception. Exception: " (ex-message e))}))
 
                   (vector? schema) (let [schema-type (first schema)
                                          ; as of now we only use options in [:map opts ...]
@@ -131,26 +131,23 @@
                                                []
                                                (remove true? rv)))
 
-                                       {:type    :schema-error
-                                        :message (str "Unknown schema type: "
-                                                      (pr-str schema-type)
-                                                      (when (seq path)
-                                                        (str " at path " (last path))))}))
+                                       (throw (Exception. (str "Unknown schema type: "
+                                                              (pr-str schema-type)
+                                                              (when (seq path)
+                                                                (str " at path " (last path))))))))
 
-                  :else {:type    :schema-error
-                         :message (str "Invalid schema format: "
-                                       (pr-str schema)
-                                       (when (seq path)
-                                         (str " at " (last path))))})]
+                  :else (throw (Exception. (str "Invalid schema format: "
+                                               (pr-str schema)
+                                               (when (seq path)
+                                                 (str " at " (last path)))))))]
+
      ; (prn data schema path :=> result)
-     (prn (type result) result)
      (cond
        (map? result) [(dissoc result :f)]
        (true? result) true
        (empty? result) true
        (seq result) (flatten result)
-       :else (throw (Exception. (apply str "got " result [data schema path]))))
-     )))
+       :else (throw (Exception. (apply str "got " result [data schema path])))))))
 
 (comment
   (declare a)
