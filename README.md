@@ -74,3 +74,11 @@ The syntax is inspired from malli.
               boolean?]])
 
 ```
+
+# Tests
+Clojure
+```bash 
+# Run your specific test namespace
+clj -M:clj-test -e "(require 'sali.core-test) (clojure.test/run-tests 'sali.core-test)"
+```
+

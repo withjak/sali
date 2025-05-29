@@ -1,11 +1,14 @@
-(ns sali.core
+(ns sali.core-test
   (:require [clojure.test :refer :all]
             [sali.core :as s]))
+
+; [cljd.test :refer :all]
 
 (deftest function-as-schema-test
   (is (= (s/validate 1 number?)
          true))
-  (is (= (s/validate :1 number?)
+  (is (= (->> (s/validate :1 number?)
+              (map #(dissoc % :type)))
          [{:data :1 :message "Validation failed" :path []}])))
 
 (deftest empty-collection-test
@@ -16,16 +19,20 @@
   (is (= (s/validate #{} [:set])
          true))
 
-  (is (= (s/validate 1 [:map])
+  (is (= (->> (s/validate 1 [:map])
+              (map #(dissoc % :type)))
          [{:data 1 :message "Expected map." :path []}]))
-  (is (= (s/validate 1 [:vector])
+  (is (= (->> (s/validate 1 [:vector])
+              (map #(dissoc % :type)))
          [{:data 1 :message "Expected vector." :path []}]))
-  (is (= (s/validate 1 [:set])
+  (is (= (->> (s/validate 1 [:set])
+              (map #(dissoc % :type)))
          [{:data 1 :message "Expected set." :path []}])))
 
 (deftest map-test
   ; empty map
-  (is (= (s/validate 1 [:map])
+  (is (= (->> (s/validate 1 [:map])
+              (map #(dissoc % :type)))
          [{:data 1 :message "Expected map." :path []}]))
 
   ; map with keys
@@ -49,7 +56,8 @@
     (is (= (s/validate {} [:map [:a {:required true} number?]])
            error)))
 
-  (is (= (s/validate {:a :1} [:map [:a {:required false} number?]])
+  (is (= (->> (s/validate {:a :1} [:map [:a {:required false} number?]])
+              (map #(dissoc % :type)))
          '({:data :1 :message "Validation failed" :path [:a]})))
 
   ; map opts
@@ -87,7 +95,8 @@
     (is (= (s/validate {:a 1 :b 2} schema)
            true))
     ; b is not required, but present and do not match schema
-    (is (= (s/validate {:a 1 :b :keyword} schema)
+    (is (= (->> (s/validate {:a 1 :b :keyword} schema)
+                (map #(dissoc % :type)))
            '({:data :keyword :message "Validation failed" :path [:b]})))))
 
 (deftest vector-test
@@ -105,26 +114,31 @@
          true))
 
   ; negatives
-  (is (= (s/validate [1 :2] [:vector number?])
+  (is (= (->> (s/validate [1 :2] [:vector number?])
+              (map #(dissoc % :type)))
          '({:data :2 :message "Validation failed" :path [1]})))
-  (is (= (s/validate [1 :2 3] [:vector number? keyword?])
+  (is (= (->> (s/validate [1 :2 3] [:vector number? keyword?])
+              (map #(dissoc % :type)))
          '({:data 3 :message "Validation failed" :path [2]})))
 
   ; opts
   (is (= (s/validate [1 2 3] [:vector {:f #(= (count %) 3)} number?])
          true))
-  (is (= (s/validate [1 2] [:vector {:f #(= (count %) 3)} number?])
+  (is (= (->> (s/validate [1 2] [:vector {:f #(= (count %) 3)} number?])
+              (map #(dissoc % :type)))
          '({:data [1 2] :message "Opts {:f ...} did not satisfy" :path []}))))
 
 (deftest clojure-set-test
   (is (= (s/validate #{1 2} [:set number?])
          true))
-  (is (= (s/validate #{1 :2} [:set number?])
+  (is (= (->> (s/validate #{1 :2} [:set number?])
+              (map #(dissoc % :type)))
          '({:data :2 :message "Validation failed" :path []})))
 
   (is (= (s/validate #{1 2 3} [:set {:f #(= (count %) 3)} number?])
          true))
-  (is (= (s/validate #{1 2} [:set {:f #(= (count %) 3)} number?])
+  (is (= (->> (s/validate #{1 2} [:set {:f #(= (count %) 3)} number?])
+              (map #(dissoc % :type)))
          '({:data #{1 2} :message "Opts {:f ...} did not satisfy" :path []}))))
 
 (deftest and-test
@@ -135,10 +149,12 @@
   (is (= (s/validate 1 [:and number? odd?])
          true))
 
-  (is (= (s/validate 2 [:and number? odd?])
+  (is (= (->> (s/validate 2 [:and number? odd?])
+              (map #(dissoc % :type)))
          '({:data 2 :message "Validation failed" :path []})))
 
-  (is (= (s/validate :2 [:and number? odd?])
+  (is (= (->> (s/validate :2 [:and number? odd?])
+              (map #(dissoc % :type)))
          '({:data :2 :message "Validation failed" :path []}
            {:data :2 :message "Predicate exception. Exception: Argument must be an integer: :2" :path []}))))
 
@@ -151,7 +167,8 @@
          true))
   (is (= (s/validate :1 [:or number? keyword?])
          true))
-  (is (= (s/validate "1" [:or number? keyword?])
+  (is (= (->> (s/validate "1" [:or number? keyword?])
+              (map #(dissoc % :type)))
          '({:data "1" :message "Validation failed" :path []}
            {:data "1" :message "Validation failed" :path []}))))
 

@@ -1,5 +1,10 @@
 (ns sali.core)
 
+(defn type-of
+  [data]
+  #?(:clj  (type data)
+     :cljd (.-runtimeType data)))
+
 (defn resolve-relative-path [base-path dep]
   {:pre [(or (keyword? dep) (vector? dep))]}
   (if (vector? dep)
@@ -57,9 +62,9 @@
                   (fn? schema) (try
                                  (if (schema data)
                                    true
-                                   {:data data :path path :message "Validation failed" :f schema})
+                                   {:data data :type (type-of data) :path path :message "Validation failed" :f schema})
                                  (catch Exception e
-                                   {:data data :path path :message (str "Predicate exception. Exception: " (ex-message e))}))
+                                   {:data data :type (type-of data) :path path :message (str "Predicate exception. Exception: " (ex-message e))}))
 
                   (vector? schema) (let [schema-type (first schema)
                                          ; as of now we only use options in [:map opts ...]
@@ -72,7 +77,7 @@
                                                        (rest schema))]
                                      (case schema-type
                                        :map (if-not (map? data)
-                                              {:data data :path path :message "Expected map."}
+                                              {:data data :type (type-of data) :path path :message "Expected map."}
                                               (->> (reduce
                                                      (fn [acc field]
                                                        (let [[key ops key-schema] (if (= 3 (count field))
@@ -86,7 +91,7 @@
                                                    (remove true?)))
 
                                        :vector (if-not (vector? data)
-                                                 {:data data :path path :message "Expected vector."}
+                                                 {:data data :type (type-of data) :path path :message "Expected vector."}
                                                  (let [cdata (count data)
                                                        cschema (count schema-body)
                                                        schema-body (if (zero? cschema)
@@ -107,11 +112,12 @@
                                                    (if-let [f-errors (not (f data))]
                                                      (conj errors {:path    path
                                                                    :data    data
+                                                                   :type    (type-of data)
                                                                    :message "Opts {:f ...} did not satisfy"})
                                                      errors)))
 
                                        :set (if-not (set? data)
-                                              {:data data :path path :message "Expected set."}
+                                              {:data data :type (type-of data) :path path :message "Expected set."}
                                               (let [s (first schema-body)
                                                     errors (->> data
                                                                 (map #(validate % s path context))
@@ -119,6 +125,7 @@
                                                     f (get schema-opts :f (fn [_] true))]
                                                 (if-let [f-errors (not (f data))]
                                                   (conj errors {:path    path
+                                                                :type    (type-of data)
                                                                 :data    data
                                                                 :message "Opts {:f ...} did not satisfy"})
                                                   errors)))
@@ -132,14 +139,14 @@
                                                (remove true? rv)))
 
                                        (throw (Exception. (str "Unknown schema type: "
-                                                              (pr-str schema-type)
-                                                              (when (seq path)
-                                                                (str " at path " (last path))))))))
+                                                               (pr-str schema-type)
+                                                               (when (seq path)
+                                                                 (str " at path " (last path))))))))
 
                   :else (throw (Exception. (str "Invalid schema format: "
-                                               (pr-str schema)
-                                               (when (seq path)
-                                                 (str " at " (last path)))))))]
+                                                (pr-str schema)
+                                                (when (seq path)
+                                                  (str " at " (last path)))))))]
 
      ; (prn data schema path :=> result)
      (cond
