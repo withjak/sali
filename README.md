@@ -1,9 +1,9 @@
 # sali
-Tiny schema validation library for clojure/clojurescript/clojuredart
+Tiny schema validation library for clojure/clojuredart
 
 # Features
 - Only does validation
-- Works with clojuredart/clojure/clojuresctipt
+- Works with clojuredart/clojure
 
 # Usage 
 The syntax is inspired from malli.
@@ -16,7 +16,7 @@ The syntax is inspired from malli.
 (sali/validate {:a 1} [:map [:a number?}]])
 
 ; options can be passed for each key in the map
-; keys :a :b :c are required
+; keys :a :b :c are required, :d is optional
 (sali/validate 
     {:a 1 :b 2 :c 3 :d 4} 
     [:map 
@@ -27,10 +27,10 @@ The syntax is inspired from malli.
 
 ; map itself can take options
 ; key options = (merge map-options key-options)
-; keys :a :b :c are optional 
-; key :d is required
+; keys :a :b are optional 
+; key :c is required
 (sali/validate 
-    {:a 1 :b 2 :c 3 } 
+    {:a 1 :b 2 :c 3} 
     [:map {:required false}
         [:a number?}]
         [:b {} number?}]
@@ -40,21 +40,30 @@ The syntax is inspired from malli.
 (sali/validate {} map?)
 (sali/validate {} [:map]) ; if confusing please ignore
 
-; for now, schema must apply to all the elements of the vector
-; vector do not take options
-(sali/validate [1 2] [:vector number?])
+; all elements will be tested for number?
+(s/validate [1 2] [:vector number?])
+; first element will be tested for number?
+; second element (and 3rd and so on) if present will be tested for keyword?
+(s/validate [1 :2 :3] [:vector number? keyword?])
 
-; similarly for set
+; set can only take one schema.
 (sali/validate #{1 2} [:set number?])
 
 ; and
-(sali/validate [2 4] [:vector [:and number? 
-                                    #(zero? (mod % 2))]])
+(sali/validate [2 4] [:vector [:and 
+                               number? 
+                               #(zero? (mod % 2))]])
 
 ; or 
-(sali/validate [1 :love] [:vector [:or number? 
-                                       keyword?]])
+(sali/validate [1 :love] [:vector [:or 
+                                   number? 
+                                   keyword?]])
 
+; vector and set also take opts
+(sali/validate #{1 2 3 4 5} [:set 
+                             {:f (fn [the-set]
+                                   (= (count the-set) 5))} 
+                             number?])
 
 ; when key depends on presence or value of other key(s)
 (sali/validate 
@@ -65,7 +74,7 @@ The syntax is inspired from malli.
         [:price #(#{:low :high} %)]
         [:money #(#{:i-have-it :i-do-not-have-it} %)]
 
-        [:buy {:required [:price ; relative path to :path key
+        [:buy {:required [:price ; relative path to :price key
                           :money
                           (fn [_key p m])
                             ; _key is :buy
@@ -74,6 +83,7 @@ The syntax is inspired from malli.
               boolean?]])
 
 ```
+Check tests for more examples.
 
 # Tests
 Clojure
