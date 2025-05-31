@@ -11,77 +11,71 @@ The syntax is inspired from malli.
 ```clojure
 (require '[sali.core :as sali])
 
-; For now data comes first :(
-(sali/validate 1 number?)
-(sali/validate {:a 1} [:map [:a number?}]])
+; (validate schema data)
+(sali/validate number? 1) ;=> true
+(sali/validate [:map [:a number?]] {:a 1})
 
 ; options can be passed for each key in the map
 ; keys :a :b :c are required, :d is optional
-(sali/validate 
-    {:a 1 :b 2 :c 3 :d 4} 
-    [:map 
-        [:a {:required true} number?}]
-        [:b {} number?}]
-        [:c number?}]
-        [:d {:required false} number?}]])
+(sali/validate
+  [:map
+   [:a {:required true} number?]
+   [:b {} number?]
+   [:c number?]
+   [:d {:required false} number?]]
+  {:a 1 :b 2 :c 3 :d 4})
 
 ; map itself can take options
 ; key options = (merge map-options key-options)
 ; keys :a :b are optional 
 ; key :c is required
-(sali/validate 
-    {:a 1 :b 2 :c 3} 
-    [:map {:required false}
-        [:a number?}]
-        [:b {} number?}]
-        [:c {:required true} number?}]])
-
-; something extra
-(sali/validate {} map?)
-(sali/validate {} [:map]) ; if confusing please ignore
+(sali/validate
+  [:map {:required false}
+   [:a number?]
+   [:b {} number?]
+   [:c {:required true} number?]]
+  {:a 1 :b 2 :c 3})
 
 ; all elements will be tested for number?
-(s/validate [1 2] [:vector number?])
+(sali/validate [:vector number?] [1 2])
 ; first element will be tested for number?
 ; second element (and 3rd and so on) if present will be tested for keyword?
-(s/validate [1 :2 :3] [:vector number? keyword?])
+(sali/validate [:vector number? keyword?] [1 :2 :3])
 
-; set can only take one schema.
-(sali/validate #{1 2} [:set number?])
+; All elements of a set must satisfy the same schema
+(sali/validate [:set number?] #{1 2})
 
 ; and
-(sali/validate [2 4] [:vector [:and 
-                               number? 
-                               #(zero? (mod % 2))]])
+(sali/validate
+  [:vector [:and number? even?]]
+  [2 4])
 
 ; or 
-(sali/validate [1 :love] [:vector [:or 
-                                   number? 
-                                   keyword?]])
+(sali/validate [:vector [:or number? keyword?]] [1 :love])
 
 ; vector and set also take opts
-(sali/validate #{1 2 3 4 5} [:set 
-                             {:f (fn [the-set]
-                                   (= (count the-set) 5))} 
-                             number?])
+(sali/validate
+  [:set
+   {:fn (fn [the-set]
+          (= (count the-set) 5))}
+   number?]
+  #{1 2 3 4 5})
 
 ; when key depends on presence or value of other key(s)
-(sali/validate 
-    {:price :low 
-     :money :i-have-it 
-     :buy true}
-    [:map 
-        [:price #(#{:low :high} %)]
-        [:money #(#{:i-have-it :i-do-not-have-it} %)]
+(sali/validate
+  [:map
+   [:price #(#{:low :high} %)]
+   [:money #(#{:i-have-it :i-do-not-have-it} %)]
 
-        [:buy {:required [:price ; relative path to :price key
-                          :money
-                          (fn [_key p m])
-                            ; _key is :buy
-                            (and (= p :low)
-                                 (= m :i-have-it))]} 
-              boolean?]])
-
+   [:buy {:required {:depends-on [:price :money] ; relative path to :price and :money key
+                     :fn         (fn [_key p m]
+                                   ; _key is :buy
+                                   (and (= p :low)
+                                        (= m :i-have-it)))}}
+    boolean?]]
+  {:price :low
+   :money :i-have-it
+   :buy   true})
 ```
 Check tests for more examples.
 

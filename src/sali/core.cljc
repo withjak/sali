@@ -32,9 +32,12 @@
   [key opts-map schema data path context]
   (let [value (get data key ::not-found)
         required (let [{:keys [required]} opts-map]
-                   (if (vector? required)
-                     (let [f (last required)
-                           depends-on (butlast required)
+                   (if (map? required)
+                     (let [f (:fn required)
+                           depends-on (let [d (:depends-on required)]
+                                        (if (keyword? d)
+                                          [d]
+                                          d))
                            dep-values (->> depends-on
                                            (map #(resolve-relative-path path %))
                                            (map #(get-in context %)))]
@@ -45,7 +48,7 @@
       (if required
         {:data ::not-found :path path :message (str key " is required.")}
         true)
-      (validate value schema (conj path key) context))))
+      (validate schema value (conj path key) context))))
 
 (defn validate
   "schema can be a function, a vector.
@@ -53,16 +56,18 @@
    - vector : [type options body]
               or
               [type body]"
-  ([data schema]
-   (validate data schema [] data))
-  ([data schema path]
-   (validate data schema path data))
-  ([data schema path context]
+  ([schema data]
+   (validate schema data [] data))
+  ([schema data path]
+   (validate schema data path data))
+  ([schema data path context]
+   ; (println schema path)
    (let [result (cond
                   (fn? schema) (try
                                  (if (schema data)
                                    true
-                                   {:data data :type (type-of data) :path path :message "Validation failed" :f schema})
+                                   {:data    data :type (type-of data) :path path
+                                    :message "Validation failed" :f schema})
                                  (catch Exception e
                                    {:data data :type (type-of data) :path path :message (str "Predicate exception. Exception: " (ex-message e))}))
 
@@ -75,73 +80,72 @@
                                          schema-body (if options?
                                                        (drop 2 schema)
                                                        (rest schema))]
-                                     (case schema-type
-                                       :map (if-not (map? data)
-                                              {:data data :type (type-of data) :path path :message "Expected map."}
-                                              (->> (reduce
-                                                     (fn [acc field]
-                                                       (let [[key ops key-schema] (if (= 3 (count field))
-                                                                                    field
-                                                                                    [(first field) {} (last field)])
-                                                             rv (process-field
-                                                                  key (merge schema-opts ops) key-schema
-                                                                  data path context)]
-                                                         (conj acc rv)))
-                                                     [] schema-body)
-                                                   (remove true?)))
+                                     (if-not (pos? (count schema-body))
+                                       {:data data :type (type-of data) :path path :message "schema must have a body."}
+                                       (case schema-type
+                                         :map (if-not (map? data)
+                                                {:data data :type (type-of data) :path path :message "Expected map."}
+                                                (->> (reduce
+                                                       (fn [acc field]
+                                                         (let [[key ops key-schema] (if (= 3 (count field))
+                                                                                      field
+                                                                                      [(first field) {} (last field)])
+                                                               rv (process-field
+                                                                    key (merge schema-opts ops) key-schema
+                                                                    data path context)]
+                                                           (conj acc rv)))
+                                                       [] schema-body)
+                                                     (remove true?)))
 
-                                       :vector (if-not (vector? data)
-                                                 {:data data :type (type-of data) :path path :message "Expected vector."}
-                                                 (let [cdata (count data)
-                                                       cschema (count schema-body)
-                                                       schema-body (if (zero? cschema)
-                                                                     [(fn [_] true)]
-                                                                     schema-body)
-                                                       schema-body (cond
-                                                                     (= cdata cschema) schema-body
-                                                                     (< cdata cschema) (take cdata schema-body)
-                                                                     :else (concat
-                                                                             schema-body
-                                                                             (repeat (- cdata cschema) (last schema-body))))
-                                                       errors (->> (mapv
-                                                                     (fn [idx value s]
-                                                                       (validate value s (conj path idx) context))
-                                                                     (range) data schema-body)
-                                                                   (remove true?))
-                                                       f (get schema-opts :f (fn [_] true))]
-                                                   (if-let [f-errors (not (f data))]
-                                                     (conj errors {:path    path
-                                                                   :data    data
-                                                                   :type    (type-of data)
-                                                                   :message "Opts {:f ...} did not satisfy"})
-                                                     errors)))
+                                         :vector (if-not (vector? data)
+                                                   {:data data :type (type-of data) :path path :message "Expected vector."}
+                                                   (let [cdata (count data)
+                                                         cschema (count schema-body)
+                                                         schema-body (cond
+                                                                       (= cdata cschema) schema-body
+                                                                       (< cdata cschema) (take cdata schema-body)
+                                                                       :else (concat
+                                                                               schema-body
+                                                                               (repeat (- cdata cschema) (last schema-body))))
+                                                         errors (->> (mapv
+                                                                       (fn [idx value s]
+                                                                         (validate s value (conj path idx) context))
+                                                                       (range) data schema-body)
+                                                                     (remove true?))
+                                                         f (get schema-opts :fn (fn [_] true))]
+                                                     (if-let [f-errors (not (f data))]
+                                                       (conj errors {:path    path
+                                                                     :data    data
+                                                                     :type    (type-of data)
+                                                                     :message "Opts {:fn ...} did not satisfy"})
+                                                       errors)))
 
-                                       :set (if-not (set? data)
-                                              {:data data :type (type-of data) :path path :message "Expected set."}
-                                              (let [s (first schema-body)
-                                                    errors (->> data
-                                                                (map #(validate % s path context))
-                                                                (remove true?))
-                                                    f (get schema-opts :f (fn [_] true))]
-                                                (if-let [f-errors (not (f data))]
-                                                  (conj errors {:path    path
-                                                                :type    (type-of data)
-                                                                :data    data
-                                                                :message "Opts {:f ...} did not satisfy"})
-                                                  errors)))
+                                         :set (if-not (set? data)
+                                                {:data data :type (type-of data) :path path :message "Expected set."}
+                                                (let [s (first schema-body)
+                                                      errors (->> data
+                                                                  (map #(validate s % path context))
+                                                                  (remove true?))
+                                                      f (get schema-opts :fn (fn [_] true))]
+                                                  (if-let [f-errors (not (f data))]
+                                                    (conj errors {:path    path
+                                                                  :type    (type-of data)
+                                                                  :data    data
+                                                                  :message "Opts {:fn ...} did not satisfy"})
+                                                    errors)))
 
-                                       :and (->> (map #(validate data % path context) schema-body)
-                                                 (remove true?))
+                                         :and (->> (map #(validate % data path context) schema-body)
+                                                   (remove true?))
 
-                                       :or (let [rv (mapv #(validate data % path context) schema-body)]
-                                             (if (some true? rv)
-                                               []
-                                               (remove true? rv)))
+                                         :or (let [rv (mapv #(validate % data path context) schema-body)]
+                                               (if (some true? rv)
+                                                 []
+                                                 (remove true? rv)))
 
-                                       (throw (Exception. (str "Unknown schema type: "
-                                                               (pr-str schema-type)
-                                                               (when (seq path)
-                                                                 (str " at path " (last path))))))))
+                                         (throw (Exception. (str "Unknown schema type: "
+                                                                 (pr-str schema-type)
+                                                                 (when (seq path)
+                                                                   (str " at path " (last path)))))))))
 
                   :else (throw (Exception. (str "Invalid schema format: "
                                                 (pr-str schema)
@@ -156,20 +160,6 @@
        (seq result) (flatten result)
        :else (throw (Exception. (apply str "got " result [data schema path])))))))
 
-(comment
-  (declare a)
-
-  (def a
-    (or [] [a]))
-
-  (defn check-a
-    [a]
-    (if (= a [])
-      true
-      (check-a (first a))))
-
-  (check-a [[[]]]))
-
 
 (comment
   (def types #{:bungalow, :flat, :showroom, :office, :plot, :agri-land})
@@ -177,27 +167,6 @@
   (def area-units #{:sq-ft :sq-m})
 
   (validate
-    {:id               1
-     :type             "flat"
-     :property-for     #{::sell :rent}
-     :property-fields  {:flat {:bhk 2}}
-     :contact          {:name   "Akshay Patel"
-                        :number "9876543210"}
-     :price            {:rent 100
-                        :sell 10}
-     :price-negotiable false
-     :area             {:value 1000 :unit :sq-ft}
-     :location         {:city      "Anytown"
-                        :country   "USA"
-                        :longitude 123.456
-                        :latitude  78.910
-                        :address   "123 Main St"}
-     :notes            "some text"
-     :images           ["https://images.unsplash.com/photo-1580587771525-78b9dba3b914"]
-     :docs             [{:name "Property plan"
-                         :type :pdf
-                         :url  "https://example.com/property-title-deed.pdf"}]}
-
     [:map
      [:id uuid?]
      [:type #(types %)]
@@ -223,12 +192,35 @@
               [:url string?]]]]
      [:property-for [:set #(property-for %)]]
      [:property-fields [:map
-                        [:flat {:required [:type (fn [key type]
-                                                   (= type key))]}
+                        [:flat {:required {:depends-on :type
+                                           :fn         (fn [key type]
+                                                         (= type key))}}
                          [:map [:bhk number?]]]]]
-     [:price [:map {:required [:property-for (fn [key property-for]
-                                               (property-for key))]}
+     [:price [:map {:required {:depends-on :property-for
+                               :fn         (fn [key property-for]
+                                             (property-for key))}}
               [:rent number?]
               [:sell number?]
-              [:lease number?]]]])
+              [:lease number?]]]]
+
+    {:id               1
+     :type             "flat"
+     :property-for     #{::sell :rent}
+     :property-fields  {:flat {:bhk 2}}
+     :contact          {:name   "Akshay Patel"
+                        :number "9876543210"}
+     :price            {:rent 100
+                        :sell 10}
+     :price-negotiable false
+     :area             {:value 1000 :unit :sq-ft}
+     :location         {:city      "Anytown"
+                        :country   "USA"
+                        :longitude 123.456
+                        :latitude  78.910
+                        :address   "123 Main St"}
+     :notes            "some text"
+     :images           ["https://images.unsplash.com/photo-1580587771525-78b9dba3b914"]
+     :docs             [{:name "Property plan"
+                         :type :pdf
+                         :url  "https://example.com/property-title-deed.pdf"}]})
   )
